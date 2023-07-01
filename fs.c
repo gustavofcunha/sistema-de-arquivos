@@ -146,3 +146,72 @@ struct superblock * fs_open(const char *fname){
 
 	return superbloco;
 }
+
+/* 
+Fecha o sistema de arquivos apontado por sb
+ */
+int fs_close(struct superblock *sb){
+	//verifica o descritor do sistema de arquivos
+	if(sb->magic != 0xdcc605f5){
+		errno = EBADF;
+		return -1;
+	}
+
+	//LOCK_UN: remove a trava do arquivo
+	if(flock(sb->fd, LOCK_UN | LOCK_NB) == -1){
+		errno = EBUSY;
+		return -1;
+	}
+
+	//fechando o arquivo
+	int aux = close(sb->fd);
+	if(aux == -1) return -1;
+	free(sb);
+
+	return 0;
+}
+
+/*
+Pega um ponteiro para um bloco livre no sistema de arquivos sb
+*/
+uint64_t fs_get_block(struct superblock *sb){
+	//verifica o descritor do sistema de arquivos
+	if(sb->magic != 0xdcc605f5){
+		errno = EBADF;
+		return (uint64_t) 0;
+	}
+
+	//verifica se ha blocos livres
+	if(sb->freeblks == 0){
+		errno = ENOSPC;
+		return (uint64_t) 0;
+	}
+
+	struct freepage *pagina = (struct freepage*) calloc (sb->blksz,1);
+	//localizando posição do primeiro bloco livre
+	lseek(sb->fd, (sb->freelist * sb->blksz), SEEK_SET);
+	//verificando se há algum erro na leitura
+	int aux = read(sb->fd, pagina, sb->blksz);
+	if(aux == -1){
+		free(pagina);
+		return (uint64_t) 0;
+	}
+
+	//pegando o "ponteiro" do bloco a ser retornado
+	uint64_t bloco = sb->freelist;
+	//mudando o ponteiro de lista vazia para o próximo bloco livre
+	sb->freelist = pagina->next;
+	//decrementando a quantidade de blocos livres
+	sb->freeblks--;
+
+	//escrevendo os novos dados do super bloco (freelist e freeblks)
+	lseek(sb->fd, 0, SEEK_SET);
+	aux = write(sb->fd, sb, sb->blksz);
+	if(aux == -1){
+		free(pagina);
+		return (uint64_t) 0;
+	}
+
+	free(pagina);
+	return bloco;
+}
