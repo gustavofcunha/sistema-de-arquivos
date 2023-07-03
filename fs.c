@@ -107,7 +107,7 @@ uint64_t encontraBloco(struct superblock *sb, const char *fname, int opmode) {
 	free(visitado);
 	free(ni);
 	free(in);
-	// caso erro, retorna -1. //(uint64_t)-1 n tem negativo :v
+	// caso erro, retorna -1
 	return 0;
 }
 
@@ -115,15 +115,15 @@ uint64_t encontraBloco(struct superblock *sb, const char *fname, int opmode) {
 Adiciona um bloco a um inode no FS
 */
 int linkaBlocos(struct superblock *sb, struct inode *in, uint64_t in_n, uint64_t block) {
-	int ii;
+	int i;
 	uint64_t aux, iaux_n, n;
 	struct inode *iaux = (struct inode*) calloc(sb->blksz, 1);
 
 	if (in->next == 0) {
 		// percorre para axar um local vazio
-		for (ii = 0; ii < NLINKS; ii++) {
-			if (in->links[ii] == 0) {
-				in->links[ii] = block;
+		for (i = 0; i < NLINKS; i++) {
+			if (in->links[i] == 0) {
+				in->links[i] = block;
 				free(iaux);
 				return 0;
 			}
@@ -158,9 +158,9 @@ int linkaBlocos(struct superblock *sb, struct inode *in, uint64_t in_n, uint64_t
 	}
 
 	// percorre para axar um local vazio
-	for (ii = 0; ii < NLINKS; ii++) {
-		if (in->links[ii] == 0) {
-			in->links[ii] = block;
+	for (i = 0; i < NLINKS; i++) {
+		if (in->links[i] == 0) {
+			in->links[i] = block;
 			// escreve o inode de volta
 			lseek(sb->fd, iaux_n * sb->blksz, SEEK_SET);
 			aux = write(sb->fd, iaux, sb->blksz);
@@ -438,7 +438,7 @@ int fs_put_block(struct superblock *sb, uint64_t block){
 Escreve cnt bytes de buf no sistema de arquivos apontado por sb
 */
 int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cnt){
-	int ii, aux;
+	int i, aux;
 	//verifica o descritor do sistema de arquivos
 	if(sb->magic != 0xdcc605f5){
 		errno = EBADF;
@@ -487,9 +487,9 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 		do{
 			lseek(sb->fd, curr_n*sb->blksz, SEEK_SET);
 			aux = read(sb->fd, auxin, sb->blksz);
-			for(ii=0; ii<NLINKS; ii++){
-				if(auxin->links[ii] == arquivoAntigoN){
-					auxin->links[ii] = arquivoN;
+			for(i=0; i<NLINKS; i++){
+				if(auxin->links[i] == arquivoAntigoN){
+					auxin->links[i] = arquivoN;
 					lseek(sb->fd, curr_n*sb->blksz, SEEK_SET);
 					aux = write(sb->fd, auxin, sb->blksz);
 					break;
@@ -565,8 +565,8 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 	auxin = arquivo;
 	int flageof = 0;
 	do{
-		for(ii = 0; ii<NLINKS && !flageof; ii++){
-			if(auxin->links[ii] == 0){
+		for(i = 0; i<NLINKS && !flageof; i++){
+			if(auxin->links[i] == 0){
 				//limpa o bloco
 				memset(block,0,sb->blksz);
 				if(bytes_left >= sb->blksz){
@@ -589,7 +589,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 				}
 
 				//linka o bloco
-				auxin->links[ii] = block_n;
+				auxin->links[i] = block_n;
 
 				//escreve o bloco
 				lseek(sb->fd, block_n*sb->blksz, SEEK_SET);
