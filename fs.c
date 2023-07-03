@@ -9,12 +9,195 @@
 
 #include "fs.h"
 
+int NLINKS;
+
+/*
+Retorna o índice do bloco do arquivo que tenha o nome fname
+*/
+uint64_t encontraBloco(struct superblock *sb, const char *nome_arquivo, int opmodo) {
+    char ultima_barra[strlen(nome_arquivo) + 1];
+
+    if(opmodo == 1) {
+        strcpy(ultima_barra, nome_arquivo);
+        char* caractere = strrchr(ultima_barra, '/');
+        *caractere = '\0';
+        if (strlen(ultima_barra) == 0) return 2; //retorna o endereco da raiz
+        nome_arquivo = ultima_barra;
+    }
+
+    //fila dos blocos a serem percorridos
+    uint64_t* fila_bloco = (uint64_t*) malloc(sb->blocos * sizeof(uint64_t));
+
+    //fila que marca se um bloco foi visitado ou nao
+    int* visitado = (int*) malloc(sb->blocos * sizeof(int));
+    int inicio_fila = 0, fim_fila = 0, i, auxiliar;
+
+    //zerando as duas filas
+    for(i = 0; i < sb->blocos; i++) {
+        fila_bloco[i] = 0;
+        visitado[i] = 0;
+    }
+
+    //colocando o inode da pasta raiz no inicio da fila, marcando ela
+    //como visitada e incrementando o tamanho da fila
+    fila_bloco[inicio_fila] = sb->raiz;
+    visitado[sb->raiz] = 1;
+    fim_fila++;
+
+    struct inode* inodo = (struct inode*) calloc(sb->tam_bloco, 1);
+    struct nodeinfo* informacao_no = (struct nodeinfo*) calloc(sb->tam_bloco, 1);
+
+    while(inicio_fila < fim_fila) {
+        //colocando o ponteiro na posicao indicada pelo inicio da fila
+        lseek(sb->fd, (fila_bloco[inicio_fila] * sb->tam_bloco), SEEK_SET);
+        //lendo os dados do inicio da fila.
+        auxiliar = read(sb->fd, inodo, sb->tam_bloco);
+        //se o inode inodo for de um arquivo regular (nao eh filho)
+        if(inodo->modo == IMREG) {
+            //posicionando o ponteiro na posicao do nodeinfo
+            lseek(sb->fd, ((inodo->meta) * sb->tam_bloco), SEEK_SET);
+            //lendo o nodeinfo
+            auxiliar = read(sb->fd, informacao_no, sb->tam_bloco);
+            //se o nome do arquivo eh igual ao parametro procurado
+            if(strcmp(informacao_no->nome, nome_arquivo) == 0) {
+                //libera os recursos e retorna o indice no FS
+                auxiliar = fila_bloco[inicio_fila];
+                free(fila_bloco);
+                free(visitado);
+                free(informacao_no);
+                free(inodo);
+                return auxiliar;
+            }
+        }
+        //se o inode inodo for de uma pasta
+        if(inodo->modo == IMDIR) {
+            //posicionando o ponteiro na posicao do nodeinfo
+            lseek(sb->fd, ((inodo->meta) * sb->tam_bloco), SEEK_SET);
+            //lendo o nodeinfo.
+            auxiliar = read(sb->fd, informacao_no, sb->tam_bloco);
+
+            //se o nome do arquivo eh igual ao parametro procurado
+            if(strcmp(informacao_no->nome, nome_arquivo) == 0) {
+                //libera os recursos e retorna o indice no FS
+                auxiliar = fila_bloco[inicio_fila];
+                free(fila_bloco);
+                free(visitado);
+                free(informacao_no);
+                free(inodo);
+                return auxiliar;
+            }
+
+            //para cada elemento da pasta
+            for(i = 0; i < NLINKS; i++) {
+                //se esse elemento nao foi visitado
+                if (visitado[inodo->links[i]] == 0) {
+                    if (inodo->links[i] != 0) {
+
+                        //marca ele como visitado
+                        visitado[inodo->links[i]] = 1;
+                        //insere ele no final da fila
+                        fila_bloco[fim_fila] = inodo->links[i];
+                        //incrementa o final da fila
+                        fim_fila++;
+                    }
+                }
+            }
+        }
+        inicio_fila++;
+    }
+
+    free(fila_bloco);
+    free(visitado);
+    free(informacao_no);
+    free(inodo);
+
+    //caso erro, retorna -1
+    return 0;
+}
+
+int linkaBlocos(struct superblock *sb, struct inode *inodeAtual, uint64_t numeroInodeAtual, uint64_t numeroBloco) {
+    int i;
+    uint64_t resultado, numeroProximoInode, numeroNovoBloco;
+    struct inode *novoInode = (struct inode*) calloc(sb->tamanhoBloco, 1);
+
+    if (inodeAtual->proximo == 0) {
+        // Procura por um link vazio no inode atual
+        for (i = 0; i < NLINKS; i++) {
+            if (inodeAtual->links[i] == 0) {
+                inodeAtual->links[i] = numeroBloco;
+                free(novoInode);
+                return 0;
+            }
+        }
+
+        // Cria um novo inode
+        numeroProximoInode = fs_obterBloco(sb);
+        if (numeroProximoInode == (uint64_t)-1) {
+            free(novoInode);
+            return -1;
+        }
+        inodeAtual->proximo = numeroProximoInode;
+        novoInode->modo = IMCHILD;
+        novoInode->pai = numeroInodeAtual;
+        novoInode->proximo = 0;
+        novoInode->meta = numeroInodeAtual;
+        novoInode->links[0] = numeroBloco;
+
+        // Escreve o novo inode
+        lseek(sb->fd, numeroProximoInode * sb->tamanhoBloco, SEEK_SET);
+        resultado = write(sb->fd, novoInode, sb->tamanhoBloco);
+        free(novoInode);
+        if (resultado == -1) return -1;
+        return 0;
+    }
+
+    while (inodeAtual->proximo != 0) {
+        numeroProximoInode = inodeAtual->proximo;
+        lseek(sb->fd, numeroProximoInode * sb->tamanhoBloco, SEEK_SET);
+        resultado = read(sb->fd, novoInode, sb->tamanhoBloco);
+        inodeAtual = novoInode;
+    }
+
+    // Procura por um link vazio no último inode
+    for (i = 0; i < NLINKS; i++) {
+        if (inodeAtual->links[i] == 0) {
+            inodeAtual->links[i] = numeroBloco;
+            // Escreve o inode de volta
+            lseek(sb->fd, numeroProximoInode * sb->tamanhoBloco, SEEK_SET);
+            resultado = write(sb->fd, novoInode, sb->tamanhoBloco);
+            free(novoInode);
+            return 0;
+        }
+    }
+
+    // Cria um novo inode
+    numeroNovoBloco = fs_obterBloco(sb);
+    if (numeroNovoBloco == (uint64_t)-1) {
+        free(novoInode);
+        return -1;
+    }
+    inodeAtual->proximo = numeroNovoBloco;
+    novoInode->modo = IMCHILD;
+    novoInode->pai = numeroInodeAtual;
+    novoInode->proximo = 0;
+    novoInode->meta = numeroProximoInode;
+    novoInode->links[0] = numeroBloco;
+
+    // Escreve o novo inode
+    lseek(sb->fd, numeroNovoBloco * sb->tamanhoBloco, SEEK_SET);
+    resultado = write(sb->fd, novoInode, sb->tamanhoBloco);
+
+    free(novoInode);
+    if (resultado == -1) return -1;
+    return 0;
+}
+
+
 /*
 Constroi um novo sistema de arquivos no arquivo de nome fname
 */
-struct superblock * fs_format(const char *fname, uint64_t blocksize)
-{
-	//NLINKS = (blocksize - (4 * sizeof(uint64_t)))/sizeof(uint64_t);
+struct superblock * fs_format(const char *fname, uint64_t blocksize){
+	NLINKS = (blocksize - (4 * sizeof(uint64_t)))/sizeof(uint64_t);
 
 	//verifica se o tamanho do bloco eh maior que o minimo
 	if(blocksize < MIN_BLOCK_SIZE){
@@ -269,7 +452,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 	}
 
 	uint64_t arquivoN, curr_n;
-	uint64_t diretorioPai_n = find_block(sb,fname, 1);
+	uint64_t diretorioPai_n = encontraBloco(sb,fname, 1);
 	if(diretorioPai_n == 0) return -1; //por erro
 	struct inode *diretorioPai = (struct inode*) calloc(sb->blksz,1);
 	struct inode *arquivo = (struct inode*) calloc(sb->blksz,1);
@@ -278,7 +461,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 	struct nodeinfo *paiIn = (struct nodeinfo*) calloc(sb->blksz,1);
 
 	//verifica se o arquivo existe no FS
-	uint64_t arquivoAntigoN = find_block(sb, fname, 0);
+	uint64_t arquivoAntigoN = encontraBloco(sb, fname, 0);
 	if(arquivoAntigoN > 0){
 		if(fs_unlink(sb,fname) == -1){
 			free(diretorioPai);
@@ -340,7 +523,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 		aux = write(sb->fd,paiIn,sb->blksz);
 
 		//linka o novo bloco no dir pai
-		link_block(sb,diretorioPai,diretorioPai_n,arquivoN);
+		linkaBlocos(sb,diretorioPai,diretorioPai_n,arquivoN);
 
 		//escreve o inode do pai
 		lseek(sb->fd, diretorioPai_n*sb->blksz, SEEK_SET);
