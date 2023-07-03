@@ -3,197 +3,194 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/arquivo.h>
+#include <sys/file.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "fs.h"
+
 
 int NLINKS;
 
 /*
 Retorna o índice do bloco do arquivo que tenha o nome fname
 */
-uint64_t encontraBloco(struct superblock *sb, const char *nome_arquivo, int opmodo) {
-    char ultima_barra[strlen(nome_arquivo) + 1];
+uint64_t encontraBloco(struct superblock *sb, const char *fname, int opmode) {
+	char lastbar[strlen(fname) + 1];
+	if (opmode == 1) {
+		strcpy(lastbar, fname);
+		char* c = strrchr(lastbar, '/');
+		*c = '\0';
+		if (strlen(lastbar) == 0) return 2; // retorna o endereco da raiz
+		fname = lastbar;
+	}
 
-    if(opmodo == 1) {
-        strcpy(ultima_barra, nome_arquivo);
-        char* caractere = strrchr(ultima_barra, '/');
-        *caractere = '\0';
-        if (strlen(ultima_barra) == 0) return 2; //retorna o endereco da raiz
-        nome_arquivo = ultima_barra;
-    }
+	// fila dos blocos a serem percorridos
+	uint64_t* fila = (uint64_t*) malloc(sb->blks * sizeof(uint64_t));
+	// fila que marca se um bloco foi visitado ou nao
+	int* visitado = (int*) malloc(sb->blks * sizeof(int));
+	int inicio = 0, fim = 0, i, aux;
 
-    //fila dos blocos a serem percorridos
-    uint64_t* fila_bloco = (uint64_t*) malloc(sb->blocos * sizeof(uint64_t));
+	// zerando as duas filas
+	for (i = 0; i < sb->blks; i++) {
+		fila[i] = 0;
+		visitado[i] = 0;
+	}
+	// colocando o inode pasta raiz no inicio da fila, marcando ela
+	// como visitada e incrementando o tamanho da fila
+	fila[inicio] = sb->root;
+	visitado[sb->root] = 1;
+	fim++;
 
-    //fila que marca se um bloco foi visitado ou nao
-    int* visitado = (int*) malloc(sb->blocos * sizeof(int));
-    int inicio_fila = 0, fim_fila = 0, i, auxiliar;
+	struct inode *in = (struct inode*) calloc(sb->blksz, 1);
+	struct nodeinfo *ni = (struct nodeinfo*) calloc(sb->blksz, 1);
+	while (inicio < fim) {
+		// colocando o ponteiro na posicao indicada pelo inicio da fila
+		lseek(sb->fd, (fila[inicio] * sb->blksz), SEEK_SET);
+		// lendo os dados do inicio da fila
+		aux = read(sb->fd, in, sb->blksz);
+		// se o inode in for de um arquivo regular (nao eh filho)
+		if (in->mode == IMREG) {
+			// posicionando o ponteiro na posicao do nodeinfo
+			lseek(sb->fd, ((in->meta) * sb->blksz), SEEK_SET);
+			// lendo o nodeinfo
+			aux = read(sb->fd, ni, sb->blksz);
+			// se o nome do arquivo eh igual ao parametro procurado
+			if (strcmp(ni->name, fname) == 0) {
+				// libera os recursos e retorna o indice no FS
+				aux = fila[inicio];
+				free(fila);
+				free(visitado);
+				free(ni);
+				free(in);
+				return aux;
+			}
+		}
+		// se o inode in for de uma pasta
+		if (in->mode == IMDIR) {
+			// posicionando o ponteiro na posicao do nodeinfo
+			lseek(sb->fd, ((in->meta) * sb->blksz), SEEK_SET);
+			// lendo o nodeinfo
+			aux = read(sb->fd, ni, sb->blksz);
 
-    //zerando as duas filas
-    for(i = 0; i < sb->blocos; i++) {
-        fila_bloco[i] = 0;
-        visitado[i] = 0;
-    }
+			// se o nome do arquivo eh igual ao parametro procurado
+			if (strcmp(ni->name, fname) == 0) {
+				// libera os recursos e retorna o indice no FS
+				aux = fila[inicio];
+				free(fila);
+				free(visitado);
+				free(ni);
+				free(in);
+				return aux;
+			}
 
-    //colocando o inode da pasta raiz no inicio da fila, marcando ela
-    //como visitada e incrementando o tamanho da fila
-    fila_bloco[inicio_fila] = sb->raiz;
-    visitado[sb->raiz] = 1;
-    fim_fila++;
+			// para cada elemento da pasta
+			for (i = 0; i < NLINKS; i++) {
+				// se esse elemento nao foi visitado
+				if (visitado[in->links[i]] == 0) {
+					if (in->links[i] != 0) {
 
-    struct inode* inodo = (struct inode*) calloc(sb->tam_bloco, 1);
-    struct nodeinfo* informacao_no = (struct nodeinfo*) calloc(sb->tam_bloco, 1);
+						// marca ele como visitado
+						visitado[in->links[i]] = 1;
+						// insere ele no final da fila
+						fila[fim] = in->links[i];
+						// incrementa o final da fila
+						fim++;
+					}
+				}
+			}
+		}
+		inicio++;
+	}
 
-    while(inicio_fila < fim_fila) {
-        //colocando o ponteiro na posicao indicada pelo inicio da fila
-        lseek(sb->fd, (fila_bloco[inicio_fila] * sb->tam_bloco), SEEK_SET);
-        //lendo os dados do inicio da fila.
-        auxiliar = read(sb->fd, inodo, sb->tam_bloco);
-        //se o inode inodo for de um arquivo regular (nao eh filho)
-        if(inodo->modo == IMREG) {
-            //posicionando o ponteiro na posicao do nodeinfo
-            lseek(sb->fd, ((inodo->meta) * sb->tam_bloco), SEEK_SET);
-            //lendo o nodeinfo
-            auxiliar = read(sb->fd, informacao_no, sb->tam_bloco);
-            //se o nome do arquivo eh igual ao parametro procurado
-            if(strcmp(informacao_no->nome, nome_arquivo) == 0) {
-                //libera os recursos e retorna o indice no FS
-                auxiliar = fila_bloco[inicio_fila];
-                free(fila_bloco);
-                free(visitado);
-                free(informacao_no);
-                free(inodo);
-                return auxiliar;
-            }
-        }
-        //se o inode inodo for de uma pasta
-        if(inodo->modo == IMDIR) {
-            //posicionando o ponteiro na posicao do nodeinfo
-            lseek(sb->fd, ((inodo->meta) * sb->tam_bloco), SEEK_SET);
-            //lendo o nodeinfo.
-            auxiliar = read(sb->fd, informacao_no, sb->tam_bloco);
-
-            //se o nome do arquivo eh igual ao parametro procurado
-            if(strcmp(informacao_no->nome, nome_arquivo) == 0) {
-                //libera os recursos e retorna o indice no FS
-                auxiliar = fila_bloco[inicio_fila];
-                free(fila_bloco);
-                free(visitado);
-                free(informacao_no);
-                free(inodo);
-                return auxiliar;
-            }
-
-            //para cada elemento da pasta
-            for(i = 0; i < NLINKS; i++) {
-                //se esse elemento nao foi visitado
-                if (visitado[inodo->links[i]] == 0) {
-                    if (inodo->links[i] != 0) {
-
-                        //marca ele como visitado
-                        visitado[inodo->links[i]] = 1;
-                        //insere ele no final da fila
-                        fila_bloco[fim_fila] = inodo->links[i];
-                        //incrementa o final da fila
-                        fim_fila++;
-                    }
-                }
-            }
-        }
-        inicio_fila++;
-    }
-
-    free(fila_bloco);
-    free(visitado);
-    free(informacao_no);
-    free(inodo);
-
-    //caso erro, retorna -1
-    return 0;
+	free(fila);
+	free(visitado);
+	free(ni);
+	free(in);
+	// caso erro, retorna -1. //(uint64_t)-1 n tem negativo :v
+	return 0;
 }
 
 /*
 Adiciona um bloco a um inode no FS
 */
-int linkaBlocos(struct superblock *sb, struct inode *inodeAtual, uint64_t numeroInodeAtual, uint64_t numeroBloco) {
-    int i;
-    uint64_t resultado, numeroProximoInode, numeroNovoBloco;
-    struct inode *novoInode = (struct inode*) calloc(sb->tamanhoBloco, 1);
+int linkaBlocos(struct superblock *sb, struct inode *in, uint64_t in_n, uint64_t block) {
+	int ii;
+	uint64_t aux, iaux_n, n;
+	struct inode *iaux = (struct inode*) calloc(sb->blksz, 1);
 
-    if (inodeAtual->proximo == 0) {
-        //procura por um link vazio no inode atual
-        for (i = 0; i < NLINKS; i++) {
-            if (inodeAtual->links[i] == 0) {
-                inodeAtual->links[i] = numeroBloco;
-                free(novoInode);
-                return 0;
-            }
-        }
+	if (in->next == 0) {
+		// percorre para axar um local vazio
+		for (ii = 0; ii < NLINKS; ii++) {
+			if (in->links[ii] == 0) {
+				in->links[ii] = block;
+				free(iaux);
+				return 0;
+			}
+		}
 
-        //cria um novo inode
-        numeroProximoInode = fs_obterBloco(sb);
-        if (numeroProximoInode == (uint64_t)-1) {
-            free(novoInode);
-            return -1;
-        }
-        inodeAtual->proximo = numeroProximoInode;
-        novoInode->modo = IMCHILD;
-        novoInode->pai = numeroInodeAtual;
-        novoInode->proximo = 0;
-        novoInode->meta = numeroInodeAtual;
-        novoInode->links[0] = numeroBloco;
+		// cria um novo inode
+		n = fs_get_block(sb);
+		if (n == (uint64_t)-1) {
+			free(iaux);
+			return -1;
+		}
+		in->next = n;
+		iaux->mode = IMCHILD;
+		iaux->parent = in_n;
+		iaux->next = 0;
+		iaux->meta = in_n;
+		iaux->links[0] = block;
 
-        //escreve o novo inode
-        lseek(sb->fd, numeroProximoInode * sb->tamanhoBloco, SEEK_SET);
-        resultado = write(sb->fd, novoInode, sb->tamanhoBloco);
-        free(novoInode);
-        if (resultado == -1) return -1;
-        return 0;
-    }
+		// escreve o novo inode
+		lseek(sb->fd, n * sb->blksz, SEEK_SET);
+		aux = write(sb->fd, iaux, sb->blksz);
+		free(iaux);
+		if (aux == -1) return -1;
+		return 0;
+	}
 
-    while (inodeAtual->proximo != 0) {
-        numeroProximoInode = inodeAtual->proximo;
-        lseek(sb->fd, numeroProximoInode * sb->tamanhoBloco, SEEK_SET);
-        resultado = read(sb->fd, novoInode, sb->tamanhoBloco);
-        inodeAtual = novoInode;
-    }
+	while (in->next != 0) {
+		iaux_n = in->next;
+		lseek(sb->fd, iaux_n * sb->blksz, SEEK_SET);
+		aux = read(sb->fd, iaux, sb->blksz);
+		in = iaux;
+	}
 
-    //procura por um link vazio no último inode
-    for (i = 0; i < NLINKS; i++) {
-        if (inodeAtual->links[i] == 0) {
-            inodeAtual->links[i] = numeroBloco;
-            // Escreve o inode de volta
-            lseek(sb->fd, numeroProximoInode * sb->tamanhoBloco, SEEK_SET);
-            resultado = write(sb->fd, novoInode, sb->tamanhoBloco);
-            free(novoInode);
-            return 0;
-        }
-    }
+	// percorre para axar um local vazio
+	for (ii = 0; ii < NLINKS; ii++) {
+		if (in->links[ii] == 0) {
+			in->links[ii] = block;
+			// escreve o inode de volta
+			lseek(sb->fd, iaux_n * sb->blksz, SEEK_SET);
+			aux = write(sb->fd, iaux, sb->blksz);
+			free(iaux);
+			return 0;
+		}
+	}
 
-    //cria um novo inode
-    numeroNovoBloco = fs_obterBloco(sb);
-    if (numeroNovoBloco == (uint64_t)-1) {
-        free(novoInode);
-        return -1;
-    }
-    inodeAtual->proximo = numeroNovoBloco;
-    novoInode->modo = IMCHILD;
-    novoInode->pai = numeroInodeAtual;
-    novoInode->proximo = 0;
-    novoInode->meta = numeroProximoInode;
-    novoInode->links[0] = numeroBloco;
+	// cria um novo inode
+	n = fs_get_block(sb);
+	if (n == (uint64_t)-1) {
+		free(iaux);
+		return -1;
+	}
+	in->next = n;
+	iaux->mode = IMCHILD;
+	iaux->parent = in_n;
+	iaux->next = 0;
+	iaux->meta = iaux_n;
+	iaux->links[0] = block;
 
-    //escreve o novo inode
-    lseek(sb->fd, numeroNovoBloco * sb->tamanhoBloco, SEEK_SET);
-    resultado = write(sb->fd, novoInode, sb->tamanhoBloco);
+	// escreve o novo inode
+	lseek(sb->fd, n * sb->blksz, SEEK_SET);
+	aux = write(sb->fd, iaux, sb->blksz);
 
-    free(novoInode);
-    if (resultado == -1) return -1;
-    return 0;
+	free(iaux);
+	if (aux == -1) return -1;
+	return 0;
 }
+
 
 
 /*
@@ -233,7 +230,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize){
 	superBloco->blksz = blocksize;
 
 	//superbloco, nodeinfo, root e inode de root ocupam 3 blocos
-	int memoriaOcupada = 3
+	int memoriaOcupada = 3;
 
 	//blocos livres
 	superBloco->freeblks = numeroBlocos-memoriaOcupada;
@@ -245,17 +242,17 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize){
 	superBloco->root = 2;
 
 	//descritor de arquivos
-	superBloco->descritorArquivos = open(fname, O_RDWR, S_IWRITE | S_IREAD);
-	if(superBloco->descritorArquivos == -1){
+	superBloco->fd = open(fname, O_RDWR, S_IWRITE | S_IREAD);
+	if(superBloco->fd == -1){
 		errno = EBADF;
 		free(superBloco);
 		return NULL;
 	}
 
 	//inicializando o superbloco
-	int aux = write(superBloco->descritorArquivos, superBloco, superBloco->blksz);
+	int aux = write(superBloco->fd, superBloco, superBloco->blksz);
 	if(aux == -1){
-		close(superBloco->descritorArquivos);
+		close(superBloco->fd);
 		free(superBloco);
 		return NULL;
 	}
@@ -264,7 +261,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize){
 	struct nodeinfo* rootInfo = (struct nodeinfo*) calloc (superBloco->blksz,1);
 	rootInfo->size = 0;
 	strcpy(rootInfo->name, "/\0");
-	aux = write(superBloco->descritorArquivos, rootInfo, superBloco->blksz);
+	aux = write(superBloco->fd, rootInfo, superBloco->blksz);
 	free(rootInfo);
 
 	struct inode* rootInode = (struct inode*) calloc (superBloco->blksz,1);
@@ -272,7 +269,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize){
 	rootInode->parent = 0;
 	rootInode->meta = 1;
 	rootInode->next = 0;
-	aux = write(superBloco->descritorArquivos, rootInode, superBloco->blksz);
+	aux = write(superBloco->fd, rootInode, superBloco->blksz);
 	free(rootInode);
 
 	//inicializando lista de blocos vazios
@@ -285,7 +282,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize){
 			root_fp->next = i+1;
 		}
 
-		aux = write(superBloco->descritorArquivos, root_fp, superBloco->blksz);
+		aux = write(superBloco->fd, root_fp, superBloco->blksz);
 	}
 	free(root_fp);
 
