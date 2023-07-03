@@ -115,13 +115,16 @@ uint64_t encontraBloco(struct superblock *sb, const char *nome_arquivo, int opmo
     return 0;
 }
 
+/*
+Adiciona um bloco a um inode no FS
+*/
 int linkaBlocos(struct superblock *sb, struct inode *inodeAtual, uint64_t numeroInodeAtual, uint64_t numeroBloco) {
     int i;
     uint64_t resultado, numeroProximoInode, numeroNovoBloco;
     struct inode *novoInode = (struct inode*) calloc(sb->tamanhoBloco, 1);
 
     if (inodeAtual->proximo == 0) {
-        // Procura por um link vazio no inode atual
+        //procura por um link vazio no inode atual
         for (i = 0; i < NLINKS; i++) {
             if (inodeAtual->links[i] == 0) {
                 inodeAtual->links[i] = numeroBloco;
@@ -130,7 +133,7 @@ int linkaBlocos(struct superblock *sb, struct inode *inodeAtual, uint64_t numero
             }
         }
 
-        // Cria um novo inode
+        //cria um novo inode
         numeroProximoInode = fs_obterBloco(sb);
         if (numeroProximoInode == (uint64_t)-1) {
             free(novoInode);
@@ -143,7 +146,7 @@ int linkaBlocos(struct superblock *sb, struct inode *inodeAtual, uint64_t numero
         novoInode->meta = numeroInodeAtual;
         novoInode->links[0] = numeroBloco;
 
-        // Escreve o novo inode
+        //escreve o novo inode
         lseek(sb->fd, numeroProximoInode * sb->tamanhoBloco, SEEK_SET);
         resultado = write(sb->fd, novoInode, sb->tamanhoBloco);
         free(novoInode);
@@ -158,7 +161,7 @@ int linkaBlocos(struct superblock *sb, struct inode *inodeAtual, uint64_t numero
         inodeAtual = novoInode;
     }
 
-    // Procura por um link vazio no último inode
+    //procura por um link vazio no último inode
     for (i = 0; i < NLINKS; i++) {
         if (inodeAtual->links[i] == 0) {
             inodeAtual->links[i] = numeroBloco;
@@ -170,7 +173,7 @@ int linkaBlocos(struct superblock *sb, struct inode *inodeAtual, uint64_t numero
         }
     }
 
-    // Cria um novo inode
+    //cria um novo inode
     numeroNovoBloco = fs_obterBloco(sb);
     if (numeroNovoBloco == (uint64_t)-1) {
         free(novoInode);
@@ -183,7 +186,7 @@ int linkaBlocos(struct superblock *sb, struct inode *inodeAtual, uint64_t numero
     novoInode->meta = numeroProximoInode;
     novoInode->links[0] = numeroBloco;
 
-    // Escreve o novo inode
+    //escreve o novo inode
     lseek(sb->fd, numeroNovoBloco * sb->tamanhoBloco, SEEK_SET);
     resultado = write(sb->fd, novoInode, sb->tamanhoBloco);
 
