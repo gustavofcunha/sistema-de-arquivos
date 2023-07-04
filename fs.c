@@ -226,7 +226,7 @@ struct superblock * fs_format(const char *fname, uint64_t blocksize){
 	//criando o superbloco
 	struct superblock* superBloco = (struct superblock*) malloc (blocksize);
 	superBloco->magic = 0xdcc605f5; //conforme estabelecido em fs.h
-	superBloco->blks = numeroBlocos; 
+	superBloco->blks = numeroBlocos;
 	superBloco->blksz = blocksize;
 
 	//superbloco, nodeinfo, root e inode de root ocupam 3 blocos
@@ -330,7 +330,7 @@ struct superblock * fs_open(const char *fname){
 	return superbloco;
 }
 
-/* 
+/*
 Fecha o sistema de arquivos apontado por sb
  */
 int fs_close(struct superblock *sb){
@@ -451,12 +451,12 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 		return -1;
 	}
 
-	uint64_t arquivoN, curr_n;
+	uint64_t arquivoN, node_atual;
 	uint64_t diretorioPai_n = encontraBloco(sb,fname, 1);
 	if(diretorioPai_n == 0) return -1; //por erro
 	struct inode *diretorioPai = (struct inode*) calloc(sb->blksz,1);
 	struct inode *arquivo = (struct inode*) calloc(sb->blksz,1);
-	struct inode *auxin = (struct inode*) calloc(sb->blksz,1);
+	struct inode *aux_inode = (struct inode*) calloc(sb->blksz,1);
 	struct nodeinfo *arquivoIn = (struct nodeinfo*) calloc(sb->blksz,1);
 	struct nodeinfo *paiIn = (struct nodeinfo*) calloc(sb->blksz,1);
 
@@ -466,7 +466,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 		if(fs_unlink(sb,fname) == -1){
 			free(diretorioPai);
 			free(arquivo);
-			free(auxin);
+			free(aux_inode);
 			free(arquivoIn);
 			free(paiIn);
 			return -1;
@@ -475,7 +475,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 		if(arquivoN == (uint64_t)-1){
 			free(diretorioPai);
 			free(arquivo);
-			free(auxin);
+			free(aux_inode);
 			free(arquivoIn);
 			free(paiIn);
 			errno = ENOSPC;
@@ -483,21 +483,21 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 		}
 
 		//procura pela referencia do arq no diretorio e atualiza para o novo arq
-		curr_n = diretorioPai_n;
+		node_atual = diretorioPai_n;
 		do{
-			lseek(sb->fd, curr_n*sb->blksz, SEEK_SET);
-			aux = read(sb->fd, auxin, sb->blksz);
+			lseek(sb->fd, node_atual*sb->blksz, SEEK_SET);
+			aux = read(sb->fd, aux_inode, sb->blksz);
 			for(i=0; i<NLINKS; i++){
-				if(auxin->links[i] == arquivoAntigoN){
-					auxin->links[i] = arquivoN;
-					lseek(sb->fd, curr_n*sb->blksz, SEEK_SET);
-					aux = write(sb->fd, auxin, sb->blksz);
+				if(aux_inode->links[i] == arquivoAntigoN){
+					aux_inode->links[i] = arquivoN;
+					lseek(sb->fd, node_atual*sb->blksz, SEEK_SET);
+					aux = write(sb->fd, aux_inode, sb->blksz);
 					break;
 				}
 			}
-			curr_n = auxin->next;
+			node_atual = aux_inode->next;
 		}
-		while(curr_n != 0);
+		while(node_atual != 0);
 	}
 	//se o arq nao existia
 	else{
@@ -506,7 +506,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 		if(arquivoN == (uint64_t)-1){
 			free(diretorioPai);
 			free(arquivo);
-			free(auxin);
+			free(aux_inode);
 			free(arquivoIn);
 			free(paiIn);
 			errno = ENOSPC;
@@ -540,7 +540,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 	if(arquivo->meta == (uint64_t)-1){
 		free(diretorioPai);
 		free(arquivo);
-		free(auxin);
+		free(aux_inode);
 		free(arquivoIn);
 		free(paiIn);
 		errno = ENOSPC;
@@ -549,24 +549,24 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 
 	//cria estrutura do meta do arq e a escreve
 	strcpy(arquivoIn->name,fname);
-	arquivoIn->size = cnt; 
+	arquivoIn->size = cnt;
 	lseek(sb->fd, arquivo->meta*sb->blksz, SEEK_SET);
 	aux = write(sb->fd,arquivoIn,sb->blksz);
 
 	//cria blocos e escreve o dado
-	memset(auxin,0,sb->blksz);
+	memset(aux_inode,0,sb->blksz);
 	uint64_t block_n;
 	uint64_t bytes_left = (uint64_t) cnt*sizeof(char);
 	void *block = calloc(sb->blksz,1);
 
 	uint64_t last_n;
-	curr_n = arquivoN;
-	free(auxin);
-	auxin = arquivo;
+	node_atual = arquivoN;
+	free(aux_inode);
+	aux_inode = arquivo;
 	int flageof = 0;
 	do{
 		for(i = 0; i<NLINKS && !flageof; i++){
-			if(auxin->links[i] == 0){
+			if(aux_inode->links[i] == 0){
 				//limpa o bloco
 				memset(block,0,sb->blksz);
 				if(bytes_left >= sb->blksz){
@@ -589,7 +589,7 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 				}
 
 				//linka o bloco
-				auxin->links[i] = block_n;
+				aux_inode->links[i] = block_n;
 
 				//escreve o bloco
 				lseek(sb->fd, block_n*sb->blksz, SEEK_SET);
@@ -598,15 +598,15 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 		}
 		if(flageof){
 			//Escreve o inode corrente
-			lseek(sb->fd, curr_n*sb->blksz, SEEK_SET);
-			aux = write(sb->fd,auxin,sb->blksz);
+			lseek(sb->fd, node_atual*sb->blksz, SEEK_SET);
+			aux = write(sb->fd,aux_inode,sb->blksz);
 		}
 		else{
 			//Inode cheio, e eof n encontrado
 
-			last_n = curr_n;
-			auxin->next = fs_get_block(sb);
-			if(auxin->next == (uint64_t) -1){
+			last_n = node_atual;
+			aux_inode->next = fs_get_block(sb);
+			if(aux_inode->next == (uint64_t) -1){
 				free(diretorioPai);
 				free(arquivo);
 				free(arquivoIn);
@@ -616,18 +616,18 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 			}
 
 			//Escreve o inode corrente
-			lseek(sb->fd, curr_n*sb->blksz, SEEK_SET);
-			aux = write(sb->fd,auxin,sb->blksz);
+			lseek(sb->fd, node_atual*sb->blksz, SEEK_SET);
+			aux = write(sb->fd,aux_inode,sb->blksz);
 
-			//Limpa o struct auxin e atualiza curr_n
-			curr_n = auxin->next;
-			memset(auxin,0,sb->blksz);
+			//Limpa o struct aux_inode e atualiza node_atual
+			node_atual = aux_inode->next;
+			memset(aux_inode,0,sb->blksz);
 
 			//Cria estrutura do inode filho
-			auxin->parent = arquivoN;
-			auxin->meta = last_n;
-			auxin->mode = IMCHILD;
-			auxin->next = 0;
+			aux_inode->parent = arquivoN;
+			aux_inode->meta = last_n;
+			aux_inode->mode = IMCHILD;
+			aux_inode->next = 0;
 		}
 	}
 	while(!flageof);
@@ -638,4 +638,490 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 	free(paiIn);
 
 	return 0;
+}
+
+ssize_t fs_read_file(struct superblock *sb, const char *fname, char *buf, size_t bufsz) {
+    // Verifica o descritor do sistema de arquivos.
+    if (sb->magic != 0xdcc605f5) {
+        errno = EBADF;
+        return -1;
+    }
+
+    // Verifica se o nome do arquivo (caminho) é maior que o permitido.
+    if (strlen(fname) > ((sb->blksz) - (8 * sizeof(uint64_t)))) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+
+    // Verifica se o arquivo existe no sistema de arquivos e salva seu "endereço".
+    uint64_t block = encontraBloco(sb, fname, 0);
+    if (block == 0) {
+        errno = ENOENT;
+        return -1;
+    }
+
+    struct inode *inode = (struct inode*) calloc(sb->blksz, 1);
+    struct nodeinfo *node_info = (struct nodeinfo*) calloc(sb->blksz, 1);
+    int nlinks, i;
+    size_t bufaux = 0;
+    char* leitor = (char*) malloc(sb->blksz);
+
+    // Posiciona o ponteiro de arquivo na posição do inode do arquivo que será lido.
+    lseek(sb->fd, block * sb->blksz, SEEK_SET);
+    // Carrega o inode.
+    read(sb->fd, inode, sb->blksz);
+
+    // Verifica se o arquivo não é um diretório.
+    if (inode->mode == IMDIR) {
+        errno = EISDIR;
+        goto cleanup;
+    }
+
+    // Posiciona o ponteiro de arquivo na posição do nodeinfo desse arquivo.
+    lseek(sb->fd, inode->meta * sb->blksz, SEEK_SET);
+    // Carrega o nodeinfo.
+    read(sb->fd, node_info, sb->blksz);
+    // Quantos links existem em um inode completo.
+    nlinks = (sb->blksz - 4 * sizeof(uint64_t)) / sizeof(uint64_t);
+
+    // Enquanto houver mais inodes e não ultrapassar o tamanho do buffer.
+    while (inode->next > 0 && bufaux < bufsz) {
+        // Para todos os links do inode, se não ultrapassar o tamanho do buffer.
+        for (i = 0; i < nlinks && bufaux < bufsz; i++) {
+            // Posiciona no link[i].
+            lseek(sb->fd, inode->links[i] * sb->blksz, SEEK_SET);
+            // Lê o link[i] em uma variável auxiliar chamada "leitor".
+            ssize_t bytes_read = read(sb->fd, leitor, sb->blksz);
+            // Concatena "leitor" com "buf".
+            strncat(buf, leitor, bufsz - bufaux);
+            // Atualiza a quantidade de bytes lidos.
+            bufaux += bytes_read;
+        }
+        // Posiciona e lê o próximo inode.
+        lseek(sb->fd, inode->next * sb->blksz, SEEK_SET);
+        read(sb->fd, inode, sb->blksz);
+    }
+
+    // No último inode.
+    int nlinks_ult_node = ((node_info->size % sb->blksz) / sizeof(uint64_t)) - 4;
+    for (i = 0; i < nlinks_ult_node && bufaux < bufsz; i++) {
+        size_t read_size;
+        // Se o tamanho do buffer for múltiplo de sb->blksz.
+        if (bufsz % sb->blksz == 0) {
+            read_size = sb->blksz;
+        } else { // Se o tamanho do buffer não for múltiplo de sb->blksz.
+            // Calcula o módulo entre o tamanho do buffer e sb->blksz.
+            size_t mod = bufsz % sb->blksz;
+            read_size = mod;
+        }
+
+        // Posiciona no link[i].
+        lseek(sb->fd, inode->links[i] * sb->blksz, SEEK_SET);
+        // Lê o link[i] em uma variável auxiliar chamada "leitor".
+        ssize_t bytes_read = read(sb->fd, leitor, read_size);
+        // Concatena "leitor" com "buf".
+        strncat(buf, leitor, bufsz - bufaux);
+        // Atualiza a quantidade de bytes lidos.
+        bufaux += bytes_read;
+    }
+
+    free(inode);
+    free(node_info);
+    free(leitor);
+    return bufaux;
+
+cleanup:
+    // Em caso de erro, libera a memória alocada.
+    free(inode);
+    free(node_info);
+    free(leitor);
+    return -1;
+}
+
+int fs_unlink(struct superblock *sb, const char *fname) {
+    // Verifica se o descritor do sistema de arquivos é válido.
+    if (sb->magic != 0xdcc605f5) {
+        errno = EBADF; // Define o erro como "descritor de arquivo inválido".
+        return -1;
+    }
+
+    // Verifica se o nome do arquivo (caminho) é maior do que o permitido.
+    if (strlen(fname) > ((sb->blksz) - (8 * sizeof(uint64_t)))) {
+        errno = ENAMETOOLONG; // Define o erro como "nome de arquivo muito longo".
+        return -1;
+    }
+
+    // Verifica se o arquivo existe no sistema de arquivos.
+    uint64_t block = encontraBloco(sb, fname, 0);
+    if (block == 0) {
+        errno = ENOENT; // Define o erro como "arquivo não encontrado".
+        return -1;
+    }
+
+    int aux;
+    int i, index;
+    struct inode *inode_atual = (struct inode*) calloc(sb->blksz, 1);
+    struct inode *prox_inode = (struct inode*) calloc(sb->blksz, 1);
+    struct inode *parent_dir = (struct inode*) calloc(sb->blksz, 1);
+    struct nodeinfo *parent_inode = (struct nodeinfo*) calloc(sb->blksz, 1);
+    struct nodeinfo *node_info = (struct nodeinfo*) calloc(sb->blksz, 1);
+
+    // Posiciona o ponteiro na posição do primeiro inode para leitura.
+    lseek(sb->fd, block * sb->blksz, SEEK_SET);
+    aux = read(sb->fd, inode_atual, sb->blksz);
+
+    // Verifica se é um diretório.
+    if (inode_atual->mode == IMDIR) {
+        errno = EISDIR; // Define o erro como "é um diretório".
+        goto cleanup;
+    }
+
+    // Lê o inode do diretório pai.
+    lseek(sb->fd, inode_atual->parent * sb->blksz, SEEK_SET);
+    aux = read(sb->fd, parent_dir, sb->blksz);
+
+    // Lê o nodeinfo do diretório pai e atualiza-o.
+    lseek(sb->fd, parent_dir->meta * sb->blksz, SEEK_SET);
+    aux = read(sb->fd, parent_inode, sb->blksz);
+    parent_inode->size--;
+
+    lseek(sb->fd, parent_dir->meta * sb->blksz, SEEK_SET);
+    aux = write(sb->fd, parent_inode, sb->blksz);
+
+    uint64_t node_atual;
+    struct inode *aux_inode = (struct inode*) calloc(sb->blksz, 1);
+
+    // Procura a referência do arquivo no diretório pai e remove-a.
+    node_atual = inode_atual->parent;
+    do {
+        lseek(sb->fd, node_atual * sb->blksz, SEEK_SET);
+        aux = read(sb->fd, aux_inode, sb->blksz);
+        for (i = 0; i < NLINKS; i++) {
+            if (aux_inode->links[i] == block) {
+                aux_inode->links[i] = 0;
+                lseek(sb->fd, node_atual * sb->blksz, SEEK_SET);
+                aux = write(sb->fd, aux_inode, sb->blksz);
+                break;
+            }
+        }
+        node_atual = aux_inode->next;
+    } while (node_atual != 0);
+
+    free(aux_inode);
+    free(parent_dir);
+    free(parent_inode);
+
+    // Lê o nodeinfo para obter o tamanho do arquivo.
+    lseek(sb->fd, inode_atual->meta * sb->blksz, SEEK_SET);
+    aux = read(sb->fd, node_info, sb->blksz);
+
+    // Libera o nodeinfo desse arquivo.
+    fs_put_block(sb, inode_atual->meta);
+
+    // Libera os links utilizados.
+    for (i = 0; i < NLINKS; i++) {
+        if (inode_atual->links[i] > 0) {
+            fs_put_block(sb, inode_atual->links[i]);
+        }
+    }
+
+    // Se houver um child.
+    while (inode_atual->next > 0) {
+        // Salva o índice do próximo inode.
+        index = inode_atual->next;
+        // Lê o próximo inode.
+        lseek(sb->fd, inode_atual->next * sb->blksz, SEEK_SET);
+        aux = read(sb->fd, inode_atual, sb->blksz);
+
+        // Libera os links utilizados.
+        for (i = 0; i < NLINKS; i++) {
+            if (inode_atual->links[i] > 0) {
+                fs_put_block(sb, inode_atual->links[i]);
+            }
+        }
+
+        // Libera o inode.
+        fs_put_block(sb, index);
+    }
+
+    // Libera o inode deste arquivo.
+    fs_put_block(sb, block);
+
+    // Em caso de sucesso.
+    free(inode_atual);
+    free(prox_inode);
+    free(node_info);
+    return 0;
+
+cleanup:
+    // Em caso de erro, libera a memória alocada.
+    free(inode_atual);
+    free(prox_inode);
+    free(parent_dir);
+    free(parent_inode);
+    free(node_info);
+    return -1;
+}
+
+int fs_mkdir(struct superblock *sb, const char *dname) {
+    // Verifica o descritor do sistema de arquivos.
+    if (sb->magic != 0xdcc605f5) {
+        errno = EBADF;  // Definir o erro EBADF
+        return -1;
+    }
+
+    // Verifica se o nome do diretório é maior que o permitido.
+    if (strlen(dname) > sb->blksz - 8 * sizeof(uint64_t)) {
+        errno = ENAMETOOLONG;  // Definir o erro ENAMETOOLONG
+        return -1;
+    }
+
+    // Verifica se o diretório pai existe e se o nome do diretório não contém espaços em branco.
+    if (*dname != '/' || strchr(dname, ' ') != NULL) {
+        errno = ENOENT;  // Definir o erro ENOENT
+        return -1;
+    }
+
+    // Verifica se o diretório já existe.
+    uint64_t superbloco = encontraBloco(sb, dname, 0);
+    if (superbloco > 0) {
+        errno = EEXIST;  // Definir o erro EEXIST
+        return -1;
+    }
+
+    // Encontra o número do bloco do diretório pai.
+    uint64_t parent_node = encontraBloco(sb, dname, 1);
+    if (parent_node == 0) {
+        errno = ENOENT;  // Definir o erro ENOENT
+        return -1;
+    }
+
+    // Obtém blocos para o novo diretório e as informações do nó.
+    uint64_t dir_node = fs_get_block(sb);
+    uint64_t dir_node_info_number = fs_get_block(sb);
+    if (dir_node_info_number == (uint64_t)-1 || dir_node == (uint64_t)-1) {
+        return -1;  // Falha na obtenção de blocos
+    }
+
+    // Aloca memória para os diretórios pai, novo diretório e informações do nó.
+    struct inode *parent_dir = (struct inode*) calloc(sb->blksz, 1);
+    struct inode *dir = (struct inode*) calloc(sb->blksz, 1);
+    struct nodeinfo *dir_node_info = (struct nodeinfo*) calloc(sb->blksz, 1);
+    struct nodeinfo *parent_node_info = (struct nodeinfo*) calloc(sb->blksz, 1);
+
+    // Configura as informações do novo diretório.
+    dir->mode = IMDIR;
+    dir->next = 0;
+    dir->parent = parent_node;
+    dir->meta = dir_node_info_number;
+
+    // Extrai o nome do diretório do caminho fornecido.
+    char *auxc = strrchr(dname, '/');
+    strcpy(dir_node_info->name, auxc);
+    dir_node_info->size = 0;
+
+    // Lê o diretório pai do disco.
+    lseek(sb->fd, parent_node* sb->blksz, SEEK_SET);
+    read(sb->fd, parent_dir, sb->blksz);
+
+    // Linka o novo diretório ao diretório pai.
+    linkaBlocos(sb, parent_dir, parent_node, dir_node);
+
+    // Lê as informações do nó do diretório pai para atualizar o número de arquivos.
+    lseek(sb->fd, parent_dir->meta* sb->blksz, SEEK_SET);
+    read(sb->fd, parent_node_info, sb->blksz);
+    parent_node_info->size++;
+
+    lseek(sb->fd, parent_dir->meta* sb->blksz, SEEK_SET);
+    write(sb->fd, parent_node_info, sb->blksz);
+
+    // Escreve o diretório pai de volta no disco.
+    lseek(sb->fd, parent_node* sb->blksz, SEEK_SET);
+    write(sb->fd, parent_dir, sb->blksz);
+
+    // Escreve o novo diretório e as informações do nó no disco.
+    lseek(sb->fd, dir_node* sb->blksz, SEEK_SET);
+    write(sb->fd, dir, sb->blksz);
+    lseek(sb->fd, dir_node_info_number* sb->blksz, SEEK_SET);
+    write(sb->fd, dir_node_info, sb->blksz);
+
+    // Libera a memória alocada.
+    free(parent_dir);
+    free(parent_node_info);
+    free(dir);
+    free(dir_node_info);
+    return 0;
+}
+
+int fs_rmdir(struct superblock *sb, const char *dname) {
+	// Verifica se o descritor do sistema de arquivos é válido.
+	if (sb->magic != 0xdcc605f5) {
+		errno = EBADF;
+		return -1;
+	}
+
+	// Verifica se o nome do diretório (caminho) excede o tamanho máximo permitido.
+	if (strlen(dname) > (sb->blksz - 8 * sizeof(uint64_t))) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+
+	// Verifica se o caminho do diretório não começa com '/' ou contém espaços em branco.
+	if ((*dname != '/') || (strchr(dname, ' ') != NULL)) {
+		errno = ENOENT;
+		return -1;
+	}
+
+	// Verifica se o diretório a ser removido existe.
+	uint64_t block = encontraBloco(sb, dname, 0);
+	if (block == 0) {
+		errno = ENOENT;
+		return -1;
+	}
+
+	uint64_t parent_node = encontraBloco(sb, dname, 1);
+	uint64_t node_atual;
+
+	struct inode *parent_dir = (struct inode*) calloc(sb->blksz, 1);
+	struct inode *dir = (struct inode*) calloc(sb->blksz, 1);
+	struct nodeinfo *dir_node_info = (struct nodeinfo*) calloc(sb->blksz, 1);
+	struct nodeinfo *parent_node_info = (struct nodeinfo*) calloc(sb->blksz, 1);
+
+	// Lê o inode do diretório.
+	lseek(sb->fd, block * sb->blksz, SEEK_SET);
+	read(sb->fd, dir, sb->blksz);
+
+	// Lê as informações do nó do diretório.
+	lseek(sb->fd, dir->meta * sb->blksz, SEEK_SET);
+	read(sb->fd, dir_node_info, sb->blksz);
+
+	// Verifica se o diretório não está vazio.
+	if (dir_node_info->size > 0) {
+		errno = ENOTEMPTY;
+		goto cleanup;
+	}
+
+	fs_put_block(sb, dir->meta); // Deleta o nó de informações do diretório.
+	fs_put_block(sb, block);     // Deleta o inode do diretório.
+	memset(dir, 0, sb->blksz);   // Limpa a estrutura do diretório.
+
+	// Atualiza as informações do nó de informações e do inode do diretório pai.
+	lseek(sb->fd, parent_node* sb->blksz, SEEK_SET);
+	read(sb->fd, parent_dir, sb->blksz);
+	lseek(sb->fd, parent_dir->meta* sb->blksz, SEEK_SET);
+	read(sb->fd, parent_node_info, sb->blksz);
+	parent_node_info->size--;
+
+	lseek(sb->fd, parent_dir->meta* sb->blksz, SEEK_SET);
+	write(sb->fd, parent_node_info, sb->blksz);
+
+	// Procura pela referência ao diretório a ser removido no diretório pai e a remove.
+	node_atual = parent_node;
+	do {
+		lseek(sb->fd, node_atual* sb->blksz, SEEK_SET);
+		read(sb->fd, dir, sb->blksz);
+
+		for(int ii = 0; ii < NLINKS; ii++) {
+			if (dir->links[ii] == block) {
+				dir->links[ii] = 0;
+				lseek(sb->fd, node_atual* sb->blksz, SEEK_SET);
+				write(sb->fd, dir, sb->blksz);
+
+				break;
+			}
+		}
+		node_atual = dir->next;
+	} while (node_atual != 0);
+
+cleanup:
+	free(parent_dir);
+	free(parent_node_info);
+	free(dir);
+	free(dir_node_info);
+	return 0;
+}
+
+#include <stdlib.h>
+#include <string.h>
+
+char *fs_list_dir(struct superblock *sb, const char *dname) {
+    // Verifica o descritor do sistema de arquivos.
+    if (sb->magic != 0xdcc605f5) {
+        errno = EBADF;
+        return NULL;
+    }
+
+    // Verifica se o nome do arquivo (caminho) é maior que o permitido.
+    if (strlen(dname) > (sb->blksz - 8 * sizeof(uint64_t))) {
+        errno = ENAMETOOLONG;
+        return NULL;
+    }
+
+    // Procura o índice do inode de dname e verifica se dname existe.
+    uint64_t superbloco = encontraBloco(sb, dname, 0);
+    if (superbloco == 0) {
+        errno = ENOENT;
+        return NULL;
+    }
+
+    int i;
+    char *ret = (char*) calloc(500, sizeof(char));
+    struct inode *inode = (struct inode*) calloc(1, sb->blksz);
+    struct inode *inode_aux = (struct inode*) calloc(1, sb->blksz);
+    struct nodeinfo *node_info = (struct nodeinfo*) calloc(1, sb->blksz);
+    struct nodeinfo *node_info_aux = (struct nodeinfo*) calloc(1, sb->blksz);
+
+    char *tok;
+    char nome[50];
+
+    // Posiciona e lê o inode de dname.
+    lseek(sb->fd, superbloco * sb->blksz, SEEK_SET);
+    read(sb->fd, node_info, sb->blksz);
+
+    // Verifica se o caminho dname aponta para um diretório.
+    if (inode->mode != IMDIR) {
+        goto cleanup;
+    }
+
+    // Posiciona e lê o nodeinfo do diretório dname.
+    lseek(sb->fd, inode->meta * sb->blksz, SEEK_SET);
+    read(sb->fd, node_info, sb->blksz);
+
+    // Percorre os links do diretório dname.
+    for (i = 0; i < NLINKS; i++) {
+        if (inode->links[i] != 0) {
+            // Lê o inode de cada arquivo/pasta dentro do diretório dname.
+            lseek(sb->fd, inode->links[i] * sb->blksz, SEEK_SET);
+            read(sb->fd, inode_aux, sb->blksz);
+
+            // Lê o nodeinfo desse inode.
+            lseek(sb->fd, inode_aux->meta * sb->blksz, SEEK_SET);
+            read(sb->fd, node_info_aux, sb->blksz);
+
+            // Pega o nome completo desse arquivo/pasta e divide-o em
+            // substrings divididas pelo caractere '/'. Salva a última parte.
+            tok = strtok(node_info_aux->name, "/");
+            while (tok != NULL){
+                strcpy(nome, tok);
+                tok = strtok(NULL, "/");
+            }
+
+            if (inode_aux->mode == IMDIR)
+                strcat(nome, "/");
+
+            // Concatena o nome do arquivo/pasta à string de resultado.
+            strcat(ret, nome);
+
+            // Acrescenta um espaço entre os arquivos/pastas.
+            if (i + 1 < node_info->size)
+                strcat(ret, " ");
+        }
+    }
+
+    cleanup:
+	    free(inode);
+	    free(inode_aux);
+	    free(node_info);
+	    free(node_info_aux);
+    	return ret;
 }
