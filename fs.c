@@ -640,6 +640,9 @@ int fs_write_file(struct superblock *sb, const char *fname, char *buf, size_t cn
 	return 0;
 }
 
+/*
+Le os primeiros bufsz bytes do arquivo fname e coloca no vetor apontado por buf
+*/
 ssize_t fs_read_file(struct superblock *sb, const char *fname, char *buf, size_t bufsz) {
     // Verifica o descritor do sistema de arquivos.
     if (sb->magic != 0xdcc605f5) {
@@ -738,6 +741,9 @@ cleanup:
     return -1;
 }
 
+/*
+Remove o arquivo chamado fname do sistema de arquivos apontado por sb
+*/
 int fs_unlink(struct superblock *sb, const char *fname) {
     // Verifica se o descritor do sistema de arquivos é válido.
     if (sb->magic != 0xdcc605f5) {
@@ -863,6 +869,9 @@ cleanup:
     return -1;
 }
 
+/*
+Cria um diretorio no caminho dpath
+*/
 int fs_mkdir(struct superblock *sb, const char *dname) {
     // Verifica o descritor do sistema de arquivos.
     if (sb->magic != 0xdcc605f5) {
@@ -953,6 +962,9 @@ int fs_mkdir(struct superblock *sb, const char *dname) {
     return 0;
 }
 
+/*
+Remove o diretório no caminho dname
+*/
 int fs_rmdir(struct superblock *sb, const char *dname) {
 	// Verifica se o descritor do sistema de arquivos é válido.
 	if (sb->magic != 0xdcc605f5) {
@@ -1041,6 +1053,9 @@ cleanup:
 	return 0;
 }
 
+/*
+Retorna um string com o nome de todos os elementos no diretorio dname
+*/
 char *fs_list_dir(struct superblock *sb, const char *dname) {
     // Verifica o descritor do sistema de arquivos.
     if (sb->magic != 0xdcc605f5) {
