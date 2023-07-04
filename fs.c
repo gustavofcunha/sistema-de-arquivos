@@ -1041,9 +1041,6 @@ cleanup:
 	return 0;
 }
 
-#include <stdlib.h>
-#include <string.h>
-
 char *fs_list_dir(struct superblock *sb, const char *dname) {
     // Verifica o descritor do sistema de arquivos.
     if (sb->magic != 0xdcc605f5) {
@@ -1076,7 +1073,7 @@ char *fs_list_dir(struct superblock *sb, const char *dname) {
 
     // Posiciona e lê o inode de dname.
     lseek(sb->fd, superbloco * sb->blksz, SEEK_SET);
-    read(sb->fd, node_info, sb->blksz);
+    read(sb->fd, inode, sb->blksz);
 
     // Verifica se o caminho dname aponta para um diretório.
     if (inode->mode != IMDIR) {
